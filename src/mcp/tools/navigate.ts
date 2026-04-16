@@ -5,6 +5,7 @@
 import type { ServerConfig } from "../../config.js";
 import type { RegisterToolFn } from "../types.js";
 import { navigateViaPlaywright } from "../../browser/pw-tools-snapshot.js";
+import { preserveFrontmostApp } from "../../utils/macos-focus.js";
 
 export function registerBrowserNavigateTool(
   register: RegisterToolFn,
@@ -32,11 +33,13 @@ export function registerBrowserNavigateTool(
         throw new Error("CDP endpoint not configured");
       }
 
-      const result = await navigateViaPlaywright({
-        cdpUrl: config.cdpEndpoint,
-        targetId: args.targetId,
-        url: args.url,
-      });
+      const result = await preserveFrontmostApp(() =>
+        navigateViaPlaywright({
+          cdpUrl: config.cdpEndpoint!,
+          targetId: args.targetId,
+          url: args.url,
+        }),
+      );
 
       return `**Navigation successful**\\nURL: ${result.url}`;
     }

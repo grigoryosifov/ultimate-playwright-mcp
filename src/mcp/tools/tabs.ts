@@ -11,6 +11,7 @@ import {
   closePageByTargetIdViaPlaywright,
   focusPageByTargetIdViaPlaywright,
 } from "../../browser/pw-session.js";
+import { preserveFrontmostApp } from "../../utils/macos-focus.js";
 import {
   addTabToGroup,
   removeTabFromGroup,
@@ -170,47 +171,52 @@ export function registerBrowserTabsTool(
           }
 
           const tabUrl = url || "about:blank";
-          let resultTargetId: string;
-          let chromeTabId: number | undefined;
 
-          const hasExtension = await isTabGrouperAvailable(cdp);
-          if (hasExtension) {
-            try {
-              const extTab = await createTabViaExtension(cdp, tabUrl);
-              resultTargetId = extTab.targetId;
-              chromeTabId = extTab.chromeTabId;
-            } catch {
+          const { resultTargetId } = await preserveFrontmostApp(async () => {
+            let resultTargetId: string;
+            let chromeTabId: number | undefined;
+
+            const hasExtension = await isTabGrouperAvailable(cdp);
+            if (hasExtension) {
+              try {
+                const extTab = await createTabViaExtension(cdp, tabUrl);
+                resultTargetId = extTab.targetId;
+                chromeTabId = extTab.chromeTabId;
+              } catch {
+                const pwTab = await createPageViaPlaywright({ cdpUrl: cdp, url: tabUrl });
+                resultTargetId = pwTab.targetId;
+              }
+            } else {
               const pwTab = await createPageViaPlaywright({ cdpUrl: cdp, url: tabUrl });
               resultTargetId = pwTab.targetId;
             }
-          } else {
-            const pwTab = await createPageViaPlaywright({ cdpUrl: cdp, url: tabUrl });
-            resultTargetId = pwTab.targetId;
-          }
 
-          if (groupId) {
-            addTabToGroup(cdp, resultTargetId, groupId, chromeTabId);
+            if (groupId) {
+              addTabToGroup(cdp, resultTargetId, groupId, chromeTabId);
 
-            if (chromeTabId !== undefined) {
-              const group = getTabGroup(cdp, groupId);
-              if (group) {
-                try {
-                  const visual = await groupTabsVisually(
-                    cdp,
-                    [chromeTabId],
-                    group.name,
-                    group.color,
-                    group.chromeGroupId,
-                  );
-                  if (!group.chromeGroupId) {
-                    setChromeGroupId(groupId, visual.groupId);
+              if (chromeTabId !== undefined) {
+                const group = getTabGroup(cdp, groupId);
+                if (group) {
+                  try {
+                    const visual = await groupTabsVisually(
+                      cdp,
+                      [chromeTabId],
+                      group.name,
+                      group.color,
+                      group.chromeGroupId,
+                    );
+                    if (!group.chromeGroupId) {
+                      setChromeGroupId(groupId, visual.groupId);
+                    }
+                  } catch {
+                    // Visual grouping is best-effort only.
                   }
-                } catch {
-                  // Visual grouping is best-effort only.
                 }
               }
             }
-          }
+
+            return { resultTargetId };
+          });
 
           const groupLabel = groupId ?? "ungrouped";
           const note = groupId
