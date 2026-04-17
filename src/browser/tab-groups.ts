@@ -94,6 +94,7 @@ function isProcessAlive(pid: number): boolean {
 }
 
 function acquireLock(maxWaitMs = 3_000): void {
+  ensureDir();
   const start = Date.now();
   while (true) {
     try {
