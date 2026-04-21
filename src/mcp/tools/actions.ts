@@ -6,6 +6,7 @@ import type { ServerConfig } from "../../config.js";
 import type { RegisterToolFn } from "../types.js";
 import {
   clickViaPlaywright,
+  clickAtViaPlaywright,
   typeViaPlaywright,
   hoverViaPlaywright,
   pressKeyViaPlaywright,
@@ -58,6 +59,59 @@ export function registerBrowserActionTools(
       });
 
       return `**Clicked** element ${args.ref}`;
+    }
+  );
+
+  // browser_click_at
+  register(
+    "browser_click_at",
+    "Click at absolute page coordinates (x, y). Use as last resort when browser_click (ref-based) and browser_evaluate (JS `element.click()`) both fail — e.g., canvas-rendered UI, invisible overlays, pointer-events traps. Get coordinates from browser_screenshot. Does NOT work inside cross-origin iframes — use browser_press_key keyboard navigation there.",
+    {
+      type: "object",
+      properties: {
+        x: {
+          type: "number",
+          description: "Absolute X coordinate in viewport pixels (from browser_screenshot)",
+        },
+        y: {
+          type: "number",
+          description: "Absolute Y coordinate in viewport pixels",
+        },
+        targetId: {
+          type: "string",
+          description: "Target ID of the tab",
+        },
+        button: {
+          type: "string",
+          enum: ["left", "right", "middle"],
+          description: "Mouse button to click (default: left)",
+        },
+        doubleClick: {
+          type: "boolean",
+          description: "Perform a double-click",
+        },
+      },
+      required: ["x", "y"],
+    },
+    async (args: {
+      x: number;
+      y: number;
+      targetId?: string;
+      button?: "left" | "right" | "middle";
+      doubleClick?: boolean;
+    }) => {
+      if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
+
+      await clickAtViaPlaywright({
+        cdpUrl: config.cdpEndpoint,
+        targetId: args.targetId,
+        x: args.x,
+        y: args.y,
+        button: args.button,
+        doubleClick: args.doubleClick,
+      });
+
+      return `**Clicked** at (${args.x}, ${args.y})`;
     }
   );
 
