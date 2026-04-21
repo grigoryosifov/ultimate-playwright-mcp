@@ -71,6 +71,33 @@ export async function clickViaPlaywright(opts: {
   }
 }
 
+export async function clickAtViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  x: number;
+  y: number;
+  doubleClick?: boolean;
+  button?: "left" | "right" | "middle";
+}): Promise<void> {
+  if (!Number.isFinite(opts.x) || !Number.isFinite(opts.y)) {
+    throw new Error("x and y must be finite numbers");
+  }
+  const page = await getPageForTargetId({
+    cdpUrl: opts.cdpUrl,
+    targetId: opts.targetId,
+  });
+  ensurePageState(page);
+  if (opts.doubleClick) {
+    await page.mouse.dblclick(opts.x, opts.y, {
+      button: opts.button,
+    });
+  } else {
+    await page.mouse.click(opts.x, opts.y, {
+      button: opts.button,
+    });
+  }
+}
+
 export async function hoverViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
