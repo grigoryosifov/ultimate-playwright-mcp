@@ -207,6 +207,38 @@ export async function dragViaPlaywright(opts: {
   }
 }
 
+export async function dragAtViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  steps?: number;
+}): Promise<void> {
+  if (![opts.startX, opts.startY, opts.endX, opts.endY].every(Number.isFinite)) {
+    throw new Error("startX, startY, endX, endY must be finite numbers");
+  }
+  const page = await getPageForTargetId({
+    cdpUrl: opts.cdpUrl,
+    targetId: opts.targetId,
+  });
+  ensurePageState(page);
+  // Interpolate the move so `dragover`/pointer libraries that need more than one
+  // mouse-move fire correctly (Playwright's docs: at least two moves are needed
+  // to trigger dragover in all browsers). This is the coordinate-based sibling of
+  // dragViaPlaywright for elements with no snapshot ref (canvas UIs, custom
+  // widgets, overlays). It drives real mouse events, so — like browser_drag's
+  // mouse mode — it does NOT carry a DataTransfer and won't trigger native HTML5
+  // drag-and-drop; use browser_drag (native mode) for those.
+  const steps = Math.max(2, Math.min(100, Math.floor(opts.steps ?? 10)));
+  await page.mouse.move(opts.startX, opts.startY);
+  await page.mouse.down();
+  await page.mouse.move(opts.endX, opts.endY, { steps });
+  await page.mouse.move(opts.endX, opts.endY);
+  await page.mouse.up();
+}
+
 export async function selectOptionViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
