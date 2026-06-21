@@ -7,6 +7,7 @@ import type { RegisterToolFn } from "../types.js";
 import {
   clickViaPlaywright,
   clickAtViaPlaywright,
+  dragViaPlaywright,
   typeViaPlaywright,
   hoverViaPlaywright,
   pressKeyViaPlaywright,
@@ -112,6 +113,59 @@ export function registerBrowserActionTools(
       });
 
       return `**Clicked** at (${args.x}, ${args.y})`;
+    }
+  );
+
+  // browser_drag
+  register(
+    "browser_drag",
+    "Drag one element onto another (drag-and-drop) by their snapshot refs. mode:'auto' (default) detects native HTML5 drag-and-drop (a draggable source) and dispatches the drag events with a real DataTransfer; otherwise it uses Playwright's mouse-based dragTo for pointer/JS libraries (MUI, dnd-kit, SortableJS). Force a tier with mode:'mouse' (pointer libs) or mode:'native' (HTML5 dataTransfer; Chromium/Firefox only). Get both refs from browser_snapshot.",
+    {
+      type: "object",
+      properties: {
+        startRef: {
+          type: "string",
+          description: "Ref of the element to drag (from snapshot, e.g. 'e5')",
+        },
+        endRef: {
+          type: "string",
+          description: "Ref of the drop-target element (from snapshot, e.g. 'e9')",
+        },
+        targetId: {
+          type: "string",
+          description: "Target ID of the tab",
+        },
+        mode: {
+          type: "string",
+          enum: ["auto", "mouse", "native"],
+          description: "Drag strategy (default: auto — detects HTML5 vs pointer-based)",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Per-step timeout in ms (default 8000)",
+        },
+      },
+      required: ["startRef", "endRef"],
+    },
+    async (args: {
+      startRef: string;
+      endRef: string;
+      targetId?: string;
+      mode?: "auto" | "mouse" | "native";
+      timeoutMs?: number;
+    }) => {
+      if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
+
+      const result = await dragViaPlaywright({
+        cdpUrl: config.cdpEndpoint,
+        targetId: args.targetId,
+        startRef: args.startRef,
+        endRef: args.endRef,
+        mode: args.mode,
+        timeoutMs: args.timeoutMs,
+      });
+
+      return `**Dragged** ${args.startRef} → ${args.endRef} (${result.mode} mode)`;
     }
   );
 

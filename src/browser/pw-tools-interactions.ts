@@ -122,20 +122,86 @@ export async function dragViaPlaywright(opts: {
   targetId?: string;
   startRef: string;
   endRef: string;
+  /**
+   * Strategy for the drag:
+   * - "auto" (default): detect native HTML5 drag-and-drop (a draggable source)
+   *   and dispatch drag events with a real DataTransfer; otherwise use the
+   *   mouse-based dragTo for pointer/JS libraries.
+   * - "mouse": force Playwright's mouse-based dragTo (MUI, dnd-kit, SortableJS…).
+   * - "native": force the HTML5 DataTransfer event dispatch (Chromium/Firefox only).
+   */
+  mode?: "auto" | "mouse" | "native";
   timeoutMs?: number;
-}): Promise<void> {
+}): Promise<{ mode: "mouse" | "native" }> {
   const startRef = requireRef(opts.startRef);
   const endRef = requireRef(opts.endRef);
-  if (!startRef || !endRef) {
-    throw new Error("startRef and endRef are required");
-  }
+  const mode = opts.mode ?? "auto";
+  const timeout = normalizeTimeoutMs(opts.timeoutMs, 8000);
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+
+  const start = refLocator(page, startRef);
+  const end = refLocator(page, endRef);
+
+  // Decide whether to use the native HTML5 path. Playwright's mouse-based
+  // dragTo() synthesizes trusted mouse events that carry NO DataTransfer, so it
+  // silently no-ops on native HTML5 drag-and-drop (draggable="true", or
+  // default-draggable <a>/<img>, all of which report element.draggable === true).
+  // For those, dispatch the drag events with a real DataTransfer instead.
+  let useNative = mode === "native";
+  if (mode === "auto") {
+    try {
+      useNative = await start.evaluate(
+        (el: unknown) => (el as { draggable?: boolean }).draggable === true
+      );
+    } catch {
+      useNative = false;
+    }
+  }
+
   try {
-    await refLocator(page, startRef).dragTo(refLocator(page, endRef), {
-      timeout: Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000)),
-    });
+    if (useNative) {
+      const startHandle = await start.elementHandle({ timeout });
+      const endHandle = await end.elementHandle({ timeout });
+      if (!startHandle || !endHandle) {
+        throw new Error("could not resolve drag source/target elements");
+      }
+      try {
+        await page.evaluate(
+          ({ src, dst }: { src: unknown; dst: unknown }) => {
+            const w = window as unknown as {
+              DataTransfer: new () => unknown;
+              DragEvent: new (type: string, init: unknown) => Event;
+            };
+            const dt = new w.DataTransfer();
+            const fire = (el: unknown, type: string) =>
+              (el as { dispatchEvent: (e: Event) => boolean }).dispatchEvent(
+                new w.DragEvent(type, {
+                  bubbles: true,
+                  cancelable: true,
+                  composed: true,
+                  dataTransfer: dt,
+                })
+              );
+            // Full HTML5 drag sequence so listeners bound to any stage fire.
+            fire(src, "dragstart");
+            fire(dst, "dragenter");
+            fire(dst, "dragover");
+            fire(dst, "drop");
+            fire(src, "dragend");
+          },
+          { src: startHandle, dst: endHandle }
+        );
+      } finally {
+        await startHandle.dispose();
+        await endHandle.dispose();
+      }
+      return { mode: "native" };
+    }
+
+    await start.dragTo(end, { timeout });
+    return { mode: "mouse" };
   } catch (err) {
     throw toAIFriendlyError(err, `${startRef} -> ${endRef}`);
   }
