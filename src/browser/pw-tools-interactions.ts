@@ -4,6 +4,8 @@
  * License: MIT
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import {
   ensurePageState,
   getPageForTargetId,
@@ -623,5 +625,100 @@ export async function setInputFilesViaPlaywright(opts: {
     }
   } catch {
     // Best-effort for sites that don't react to setInputFiles alone.
+  }
+}
+
+/**
+ * Upload local files, handling both shapes a page can take.
+ *
+ * Many sites never expose a plain `<input type=file>` to click: the visible
+ * control is a button or drop zone that creates a hidden input on click and
+ * opens the OS file dialog. That dialog is native chrome, so once it is open no
+ * amount of DOM work can fill it — which is why upload is usually treated as
+ * un-automatable. Playwright can intercept the chooser *before* it opens, so
+ * the fix is to arm the interception first and then click.
+ *
+ * The two paths are picked automatically:
+ *   - target already is an `<input type=file>` → set its files directly, which
+ *     works even when the input is hidden (`display:none`, zero-size).
+ *   - anything else → treat it as the control that opens the picker: arm the
+ *     file-chooser interception, click it, and supply the files to the chooser.
+ */
+export async function uploadFilesViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref?: string;
+  element?: string;
+  paths: string[];
+  timeoutMs?: number;
+}): Promise<{ mode: "direct" | "filechooser"; files: number }> {
+  const paths = (opts.paths ?? []).map((p) => String(p ?? "").trim()).filter(Boolean);
+  if (!paths.length) {
+    throw new Error("paths are required");
+  }
+
+  // Fail loudly on a bad path. Playwright's own error for a missing file is
+  // easy to misread as "the upload control was wrong", sending you debugging
+  // the page instead of the argument.
+  const absolute = paths.map((p) => path.resolve(p));
+  const missing = absolute.filter((p) => !fs.existsSync(p));
+  if (missing.length) {
+    throw new Error(
+      `file(s) not found: ${missing.join(", ")}. Paths must exist on this machine and be absolute (or relative to ${process.cwd()}).`
+    );
+  }
+
+  const ref = typeof opts.ref === "string" ? opts.ref.trim() : "";
+  const element = typeof opts.element === "string" ? opts.element.trim() : "";
+  if (ref && element) {
+    throw new Error("ref and element are mutually exclusive");
+  }
+  if (!ref && !element) {
+    throw new Error("ref or element is required");
+  }
+
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+  const timeout = normalizeTimeoutMs(opts.timeoutMs, 15_000);
+  const locator = ref ? refLocator(page, ref) : page.locator(element).first();
+
+  let isFileInput = false;
+  try {
+    isFileInput = await locator.evaluate((el: unknown) => {
+      const node = el as { tagName?: string; type?: string };
+      return (node.tagName || "").toUpperCase() === "INPUT" && node.type === "file";
+    });
+  } catch {
+    isFileInput = false;
+  }
+
+  try {
+    if (isFileInput) {
+      await setInputFilesViaPlaywright({
+        cdpUrl: opts.cdpUrl,
+        targetId: opts.targetId,
+        inputRef: ref || undefined,
+        element: element || undefined,
+        paths: absolute,
+      });
+      return { mode: "direct", files: absolute.length };
+    }
+
+    // Arm the interception before the click, otherwise the dialog opens for
+    // real and blocks the browser.
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser", { timeout }),
+      locator.click({ timeout }),
+    ]);
+    if (absolute.length > 1 && !chooser.isMultiple()) {
+      throw new Error(
+        `this control accepts a single file but ${absolute.length} were given`
+      );
+    }
+    await chooser.setFiles(absolute);
+    return { mode: "filechooser", files: absolute.length };
+  } catch (err) {
+    throw toAIFriendlyError(err, ref || element);
   }
 }

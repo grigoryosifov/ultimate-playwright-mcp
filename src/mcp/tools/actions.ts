@@ -10,6 +10,7 @@ import {
   hoverViaPlaywright,
   pressKeyViaPlaywright,
   fillFormViaPlaywright,
+  uploadFilesViaPlaywright,
   waitForViaPlaywright,
   evaluateViaPlaywright,
   type BrowserFormField,
@@ -130,6 +131,62 @@ export function registerBrowserActionTools(
       });
 
       return `**Hovered** over ${args.ref}`;
+    }
+  );
+
+  // browser_file_upload
+  register(
+    "browser_file_upload",
+    "Upload local file(s) into a page. Handles both shapes automatically: if ref/element is an <input type=file> the files are set directly (works even when the input is hidden); otherwise the target is treated as the control that OPENS the picker — the file chooser is intercepted before it can open, the control is clicked, and the files are supplied to it. That second path is what gets past a native OS file dialog, which cannot be filled once it is already open. Use this instead of clicking an upload button and hoping.",
+    {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Absolute path(s) to the local file(s) to upload. Must exist on this machine.",
+        },
+        ref: {
+          type: "string",
+          description:
+            "Element reference from snapshot — either the file input itself, or the button/drop-zone that opens the file picker",
+        },
+        element: {
+          type: "string",
+          description:
+            "CSS selector alternative to ref (useful when the file input is hidden and absent from the snapshot, e.g. 'input[type=file]')",
+        },
+        targetId: {
+          type: "string",
+          description: "Target ID of the tab",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Timeout in ms (default 15000)",
+        },
+      },
+      required: ["paths"],
+    },
+    async (args: {
+      paths: string[];
+      ref?: string;
+      element?: string;
+      targetId?: string;
+      timeoutMs?: number;
+    }) => {
+      if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
+
+      const result = await uploadFilesViaPlaywright({
+        cdpUrl: config.cdpEndpoint,
+        targetId: args.targetId,
+        ref: args.ref,
+        element: args.element,
+        paths: args.paths,
+        timeoutMs: args.timeoutMs,
+      });
+
+      return `**Uploaded** ${result.files} file(s) via ${result.mode} mode`;
     }
   );
 
