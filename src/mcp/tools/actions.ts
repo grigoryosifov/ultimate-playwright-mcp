@@ -46,10 +46,21 @@ export function registerBrowserActionTools(
           type: "boolean",
           description: "Perform a double-click",
         },
+        humanize: {
+          type: "boolean",
+          description:
+            "Approach along a curved cursor path and press with a realistic hold instead of teleporting to the element's exact centre (default true). Set false for bulk clicking where the ~0.3-0.6s per click is not worth it.",
+        },
       },
       required: ["ref"],
     },
-    async (args: { ref: string; targetId?: string; button?: "left" | "right" | "middle"; doubleClick?: boolean }) => {
+    async (args: {
+      ref: string;
+      targetId?: string;
+      button?: "left" | "right" | "middle";
+      doubleClick?: boolean;
+      humanize?: boolean;
+    }) => {
       if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
 
       await clickViaPlaywright({
@@ -58,6 +69,7 @@ export function registerBrowserActionTools(
         ref: args.ref,
         button: args.button,
         doubleClick: args.doubleClick,
+        humanize: args.humanize,
       });
 
       return `**Clicked** element ${args.ref}`;
@@ -231,7 +243,7 @@ export function registerBrowserActionTools(
   // browser_type
   register(
     "browser_type",
-    "Type text into an element",
+    "Type text into an element. Types with human cadence by default (per-key hold, jittered gaps, occasional pauses and typo-corrections), which is what you want for anything a person is supposed to have written — a comment, a DM, a message. Pass humanize:false for bulk or dashboard entry where speed matters.",
     {
       type: "object",
       properties: {
@@ -251,10 +263,27 @@ export function registerBrowserActionTools(
           type: "boolean",
           description: "Press Enter after typing",
         },
+        humanize: {
+          type: "boolean",
+          description:
+            "Type key by key with human timing (default true). false writes the value in one shot via fill(), which fires no keyboard events at all — fast, but the most machine-looking input available. Roughly 70ms per character when enabled.",
+        },
+        slowly: {
+          type: "boolean",
+          description:
+            "Type more deliberately (slower cadence, longer pauses). Useful for editors that drop fast input.",
+        },
       },
       required: ["ref", "text"],
     },
-    async (args: { ref: string; text: string; targetId?: string; submit?: boolean }) => {
+    async (args: {
+      ref: string;
+      text: string;
+      targetId?: string;
+      submit?: boolean;
+      humanize?: boolean;
+      slowly?: boolean;
+    }) => {
       if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
 
       await typeViaPlaywright({
@@ -263,6 +292,8 @@ export function registerBrowserActionTools(
         ref: args.ref,
         text: args.text,
         submit: args.submit,
+        humanize: args.humanize,
+        slowly: args.slowly,
       });
 
       return `**Typed** "${args.text}" into ${args.ref}`;

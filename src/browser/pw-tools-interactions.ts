@@ -11,6 +11,7 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import { normalizeTimeoutMs, requireRef, toAIFriendlyError } from "./pw-tools-shared.js";
+import { humanClick, humanType, type HumanPreset } from "./human/index.js";
 
 export type BrowserFormField = {
   ref: string;
@@ -42,6 +43,13 @@ export async function clickViaPlaywright(opts: {
   button?: "left" | "right" | "middle";
   modifiers?: Array<"Alt" | "Control" | "ControlOrMeta" | "Meta" | "Shift">;
   timeoutMs?: number;
+  /**
+   * Approach the element along a curved cursor path and press with a realistic
+   * hold, instead of teleporting to its exact centre. Default true; pass false
+   * for bulk work where the ~0.3-0.6s per click is not worth it.
+   */
+  humanize?: boolean;
+  humanPreset?: HumanPreset;
 }): Promise<void> {
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
@@ -53,6 +61,20 @@ export async function clickViaPlaywright(opts: {
   const locator = refLocator(page, ref);
   const timeout = Math.max(500, Math.min(60_000, Math.floor(opts.timeoutMs ?? 8000)));
   try {
+    if (opts.humanize !== false) {
+      const clicked = await humanClick(page, locator, {
+        timeout,
+        button: opts.button,
+        modifiers: opts.modifiers,
+        doubleClick: opts.doubleClick,
+        preset: opts.humanPreset,
+      });
+      if (clicked) {
+        return;
+      }
+      // No usable box (detached, zero-size, hidden): fall through to the plain
+      // path so behaviour never regresses relative to a non-humanized click.
+    }
     if (opts.doubleClick) {
       await locator.dblclick({
         timeout,
@@ -287,6 +309,15 @@ export async function typeViaPlaywright(opts: {
   submit?: boolean;
   slowly?: boolean;
   timeoutMs?: number;
+  /**
+   * Type with human cadence — per-key hold, jittered gaps, occasional pauses
+   * and typo-corrections — instead of setting the value in one shot. Default
+   * true. Pass false for bulk/dashboard entry where speed matters; note that
+   * the non-humanized path uses fill(), which writes the value with no
+   * keyboard events at all and is the most machine-looking input available.
+   */
+  humanize?: boolean;
+  humanPreset?: HumanPreset;
 }): Promise<void> {
   const text = String(opts.text ?? "");
   const page = await getPageForTargetId(opts);
@@ -296,11 +327,23 @@ export async function typeViaPlaywright(opts: {
   const locator = refLocator(page, ref);
   const timeout = Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000));
   try {
-    if (opts.slowly) {
-      await locator.click({ timeout });
-      await locator.type(text, { timeout, delay: 75 });
-    } else {
-      await locator.fill(text, { timeout });
+    let typed = false;
+    if (opts.humanize !== false) {
+      // `slowly` predates humanize and meant "type key by key"; map it to the
+      // slower, more deliberate preset so the flag keeps its intent.
+      typed = await humanType(page, locator, text, {
+        timeout,
+        clear: true,
+        preset: opts.humanPreset ?? (opts.slowly ? "careful" : "default"),
+      });
+    }
+    if (!typed) {
+      if (opts.slowly) {
+        await locator.click({ timeout });
+        await locator.type(text, { timeout, delay: 75 });
+      } else {
+        await locator.fill(text, { timeout });
+      }
     }
     if (opts.submit) {
       await locator.press("Enter", { timeout });
