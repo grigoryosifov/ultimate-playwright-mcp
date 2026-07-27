@@ -11,7 +11,7 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import { normalizeTimeoutMs, requireRef, toAIFriendlyError } from "./pw-tools-shared.js";
-import { humanClick, humanType, type HumanPreset } from "./human/index.js";
+import { humanClick, humanHover, humanType, type HumanPreset } from "./human/index.js";
 
 export type BrowserFormField = {
   ref: string;
@@ -125,15 +125,32 @@ export async function hoverViaPlaywright(opts: {
   targetId?: string;
   ref: string;
   timeoutMs?: number;
+  /**
+   * Approach along a curved cursor path and settle on the target, instead of
+   * teleporting onto it. Default true — besides looking human, the brief dwell
+   * helps with menus that open on hover-and-hold rather than first contact.
+   */
+  humanize?: boolean;
+  humanPreset?: HumanPreset;
 }): Promise<void> {
   const ref = requireRef(opts.ref);
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+  const timeout = Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000));
+  const locator = refLocator(page, ref);
   try {
-    await refLocator(page, ref).hover({
-      timeout: Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000)),
-    });
+    if (opts.humanize !== false) {
+      const hovered = await humanHover(page, locator, {
+        timeout,
+        preset: opts.humanPreset,
+      });
+      if (hovered) {
+        return;
+      }
+      // No usable box: fall through so behaviour never regresses.
+    }
+    await locator.hover({ timeout });
   } catch (err) {
     throw toAIFriendlyError(err, ref);
   }
