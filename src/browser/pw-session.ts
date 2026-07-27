@@ -23,7 +23,7 @@ import os from "node:os";
 import { formatErrorMessage } from "../utils/errors.js";
 import { getHeadersWithAuth } from "./cdp.helpers.js";
 import { getChromeWebSocketUrl } from "./chrome.js";
-import { STEALTH_SCRIPT } from "./stealth.js";
+import { STEALTH_SCRIPT, isStealthInjectionEnabled } from "./stealth.js";
 
 // ---------- Persistent ref store (file-based) ----------
 const REFS_STORE_DIR = path.join(os.tmpdir(), "ultimate-playwright-mcp-refs");
@@ -389,17 +389,23 @@ async function enablePageDownloads(page: Page): Promise<void> {
   }
 }
 
-function observeContext(context: BrowserContext) {
+/** Exported for unit tests (see tests/stealth-injection.test.ts). */
+export function observeContext(context: BrowserContext) {
   if (observedContexts.has(context)) {
     return;
   }
   observedContexts.add(context);
   ensureContextState(context);
 
-  // Inject stealth script into every new page in this context
-  context.addInitScript(STEALTH_SCRIPT).catch(() => {
-    // Non-fatal: some contexts may not support addInitScript
-  });
+  // Inject the stealth script into every new page in this context — but only
+  // for a browser we launched ourselves. When attached to the user's own Chrome
+  // the patches fabricate detectable tells instead of hiding anything; see
+  // setStealthInjectionEnabled() in ./stealth.ts for the full rationale.
+  if (isStealthInjectionEnabled()) {
+    context.addInitScript(STEALTH_SCRIPT).catch(() => {
+      // Non-fatal: some contexts may not support addInitScript
+    });
+  }
 
   for (const page of context.pages()) {
     ensurePageState(page);

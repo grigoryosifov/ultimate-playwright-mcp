@@ -19,6 +19,7 @@ import { registerBrowserTabGroupTool } from "./tools/tab-group.js";
 import { registerBrowserScreenshotTool } from "./tools/screenshot.js";
 import { registerBrowserCheckpointTools } from "./tools/checkpoint.js";
 import { warmupTabGrouper, seedExtensionIdFromPath } from "../browser/chrome-tab-groups.js";
+import { setStealthInjectionEnabled } from "../browser/stealth.js";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -143,6 +144,11 @@ export async function runServer(config: ServerConfig) {
   if (managedDaemonMode) {
     config.cdpEndpoint = DaemonManager.getCdpEndpoint();
   }
+
+  // Stealth shims only make sense for a browser we launch ourselves. When the
+  // user points us at their own Chrome it already reports honest values, and
+  // patching would fabricate detectable tells rather than remove them.
+  setStealthInjectionEnabled(managedDaemonMode);
 
   const server = await createMCPServer(config, {
     lazyDaemonStart: managedDaemonMode,
