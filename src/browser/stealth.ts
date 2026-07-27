@@ -5,6 +5,50 @@
  * Based on puppeteer-extra-plugin-stealth evasions.
  */
 
+/**
+ * Whether the stealth script should be injected at all.
+ *
+ * These shims exist for the case where this server launches Chromium itself
+ * (managed-daemon mode). A Playwright-launched browser really does report
+ * `navigator.webdriver === true`, an empty `navigator.plugins`, and no
+ * `window.chrome`, so the shims move it back toward looking like normal Chrome.
+ *
+ * When the user attaches to their OWN already-running browser via
+ * `--cdp-endpoint`, none of that holds: it is a real, vendor-signed Chrome with
+ * a real profile that already reports honest values. Injecting there is
+ * strictly worse than doing nothing:
+ *
+ *   - `navigator.webdriver` becomes `undefined`, a value no real Chrome ever
+ *     returns (the honest answer is `false`) and a well-known signature of
+ *     stealth patching.
+ *   - A synthetic `chrome.runtime` appears on pages where real Chrome exposes
+ *     none, carrying the exact key set of the puppeteer-extra evasions.
+ *   - `Function.prototype.toString` and `Object.getOwnPropertyDescriptor` are
+ *     replaced by JS functions whose source any page can read back from a fresh
+ *     realm, defeating the `[native code]` masking:
+ *
+ *       const f = document.createElement('iframe');
+ *       document.body.appendChild(f);
+ *       f.contentWindow.Function.prototype.toString.call(Function.prototype.toString);
+ *       // => "function() { if (patchedFunctions.has(this)) { ... } }"
+ *
+ * That converts "an automated browser" into "a browser visibly trying to hide
+ * that it is automated", which is a worse signal for the user's logged-in
+ * accounts than injecting nothing.
+ *
+ * Defaults to `false` so a caller that never opts in never patches a real
+ * browser. `runServer()` enables it for managed-daemon mode only.
+ */
+let stealthInjectionEnabled = false;
+
+export function setStealthInjectionEnabled(enabled: boolean): void {
+  stealthInjectionEnabled = enabled;
+}
+
+export function isStealthInjectionEnabled(): boolean {
+  return stealthInjectionEnabled;
+}
+
 export const STEALTH_SCRIPT = `
 (function() {
   'use strict';
