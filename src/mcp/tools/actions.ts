@@ -369,6 +369,11 @@ export function registerBrowserActionTools(
           type: "number",
           description: "Timeout in ms (default 15000)",
         },
+        humanize: {
+          type: "boolean",
+          description:
+            "Humanize the click that opens the picker (default true). Only applies when the target is a button/drop-zone; setting files on an input directly never clicks anything.",
+        },
       },
       required: ["paths"],
     },
@@ -378,6 +383,7 @@ export function registerBrowserActionTools(
       element?: string;
       targetId?: string;
       timeoutMs?: number;
+      humanize?: boolean;
     }) => {
       if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
 
@@ -388,6 +394,7 @@ export function registerBrowserActionTools(
         element: args.element,
         paths: args.paths,
         timeoutMs: args.timeoutMs,
+        humanize: args.humanize,
       });
 
       return `**Uploaded** ${result.files} file(s) via ${result.mode} mode`;

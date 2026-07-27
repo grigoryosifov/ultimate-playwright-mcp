@@ -836,6 +836,12 @@ export async function uploadFilesViaPlaywright(opts: {
   element?: string;
   paths: string[];
   timeoutMs?: number;
+  /**
+   * Humanize the click that opens the picker (filechooser path only — the
+   * direct path never clicks anything). Default true.
+   */
+  humanize?: boolean;
+  humanPreset?: HumanPreset;
 }): Promise<{ mode: "direct" | "filechooser"; files: number }> {
   const paths = (opts.paths ?? []).map((p) => String(p ?? "").trim()).filter(Boolean);
   if (!paths.length) {
@@ -868,18 +874,30 @@ export async function uploadFilesViaPlaywright(opts: {
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 15_000);
   const locator = ref ? refLocator(page, ref) : page.locator(element).first();
 
-  let isFileInput = false;
+  let probe = { isFileInput: false, acceptsMultiple: false };
   try {
-    isFileInput = await locator.evaluate((el: unknown) => {
-      const node = el as { tagName?: string; type?: string };
-      return (node.tagName || "").toUpperCase() === "INPUT" && node.type === "file";
+    probe = await locator.evaluate((el: unknown) => {
+      const node = el as { tagName?: string; type?: string; multiple?: boolean };
+      return {
+        isFileInput: (node.tagName || "").toUpperCase() === "INPUT" && node.type === "file",
+        acceptsMultiple: node.multiple === true,
+      };
     });
   } catch {
-    isFileInput = false;
+    // Unreadable target: fall through and treat it as a picker-opening control.
   }
 
+  // One wording for both paths. Left to itself the direct path surfaces
+  // Playwright's own phrasing, so the same mistake reads as two different
+  // problems depending only on how the site happens to be built.
+  const tooManyFiles = () =>
+    new Error(`this control accepts a single file but ${absolute.length} were given`);
+
   try {
-    if (isFileInput) {
+    if (probe.isFileInput) {
+      if (absolute.length > 1 && !probe.acceptsMultiple) {
+        throw tooManyFiles();
+      }
       await setInputFilesViaPlaywright({
         cdpUrl: opts.cdpUrl,
         targetId: opts.targetId,
@@ -894,12 +912,21 @@ export async function uploadFilesViaPlaywright(opts: {
     // real and blocks the browser.
     const [chooser] = await Promise.all([
       page.waitForEvent("filechooser", { timeout }),
-      locator.click({ timeout }),
+      (async () => {
+        // Opening a picker is a real user action, so it gets the same treatment
+        // as any other click unless the caller opts out.
+        if (opts.humanize !== false) {
+          const clicked = await humanClick(page, locator, {
+            timeout,
+            preset: opts.humanPreset,
+          });
+          if (clicked) return;
+        }
+        await locator.click({ timeout });
+      })(),
     ]);
     if (absolute.length > 1 && !chooser.isMultiple()) {
-      throw new Error(
-        `this control accepts a single file but ${absolute.length} were given`
-      );
+      throw tooManyFiles();
     }
     await chooser.setFiles(absolute);
     return { mode: "filechooser", files: absolute.length };
