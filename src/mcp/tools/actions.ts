@@ -148,16 +148,22 @@ export function registerBrowserActionTools(
           type: "string",
           description: "Target ID of the tab",
         },
+        humanize: {
+          type: "boolean",
+          description:
+            "Approach along a curved cursor path and settle on the target instead of teleporting onto it (default true). The brief dwell also helps with menus that open on hover-and-hold rather than first contact.",
+        },
       },
       required: ["ref"],
     },
-    async (args: { ref: string; targetId?: string }) => {
+    async (args: { ref: string; targetId?: string; humanize?: boolean }) => {
       if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
 
       await hoverViaPlaywright({
         cdpUrl: config.cdpEndpoint,
         targetId: args.targetId,
         ref: args.ref,
+        humanize: args.humanize,
       });
 
       return `**Hovered** over ${args.ref}`;

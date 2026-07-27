@@ -67,12 +67,63 @@ async function looksLikeTextInput(locator: Locator): Promise<boolean> {
   }
 }
 
+type Approach = {
+  cfg: HumanConfig;
+  box: BoundingBox;
+  target: Point;
+  isInput: boolean;
+  /** Aim point relative to the element's top-left, for Playwright's `position`. */
+  position: { x: number; y: number };
+};
+
+/**
+ * Walk the cursor to a human aim point inside `locator`.
+ *
+ * Shared by click and hover: both need the same "get there like a person would"
+ * step, and only differ in what they do on arrival. Returns null when the
+ * element has no usable box (detached, zero-size, display:none) so callers can
+ * fall back to plain Playwright rather than failing outright.
+ */
+async function approach(
+  page: Page,
+  locator: Locator,
+  opts: { timeout: number; preset?: HumanPreset },
+): Promise<Approach | null> {
+  const cfg = resolveConfig(opts.preset);
+
+  let box: BoundingBox | null = null;
+  try {
+    await locator.waitFor({ state: "visible", timeout: opts.timeout });
+    await locator.scrollIntoViewIfNeeded({ timeout: opts.timeout });
+    box = await locator.boundingBox({ timeout: opts.timeout });
+  } catch {
+    return null;
+  }
+  if (!box || box.width <= 0 || box.height <= 0) {
+    return null;
+  }
+
+  const isInput = await looksLikeTextInput(locator);
+  const target = clickTarget(box, isInput, cfg);
+
+  const cursor = getCursor(page, cfg);
+  await humanMove(page.mouse, cursor.x, cursor.y, target.x, target.y, cfg);
+  setCursor(page, target);
+
+  return {
+    cfg,
+    box,
+    target,
+    isInput,
+    position: { x: target.x - box.x, y: target.y - box.y },
+  };
+}
+
 /**
  * Move the cursor to a human aim point inside `locator`, then click it.
  *
- * Returns false when the element has no usable box (detached, zero-size,
- * display:none) so the caller can fall back to a plain Playwright click rather
- * than failing outright.
+ * Returns false when the element has no usable box, so the caller can fall back
+ * to a plain Playwright click.
  */
 export async function humanClick(
   page: Page,
@@ -85,36 +136,20 @@ export async function humanClick(
     preset?: HumanPreset;
   },
 ): Promise<boolean> {
-  const cfg = resolveConfig(opts.preset);
-
-  let box: BoundingBox | null = null;
-  try {
-    await locator.waitFor({ state: "visible", timeout: opts.timeout });
-    await locator.scrollIntoViewIfNeeded({ timeout: opts.timeout });
-    box = await locator.boundingBox({ timeout: opts.timeout });
-  } catch {
-    return false;
-  }
-  if (!box || box.width <= 0 || box.height <= 0) {
-    return false;
-  }
-
-  const isInput = await looksLikeTextInput(locator);
-  const target = clickTarget(box, isInput, cfg);
-
-  const cursor = getCursor(page, cfg);
-  await humanMove(page.mouse, cursor.x, cursor.y, target.x, target.y, cfg);
-  setCursor(page, target);
+  const arrival = await approach(page, locator, {
+    timeout: opts.timeout,
+    preset: opts.preset,
+  });
+  if (!arrival) return false;
 
   // Pause between arriving and pressing, the way a hand settles on a target.
-  await sleep(aimDelay(cfg, isInput));
+  await sleep(aimDelay(arrival.cfg, arrival.isInput));
 
   // Playwright re-resolves the element and interprets `position` against its
   // current box, so a late reflow cannot make us click the wrong pixel.
-  const position = { x: target.x - box.x, y: target.y - box.y };
   const clickOpts = {
-    position,
-    delay: clickHold(cfg, isInput),
+    position: arrival.position,
+    delay: clickHold(arrival.cfg, arrival.isInput),
     button: opts.button,
     modifiers: opts.modifiers,
     timeout: opts.timeout,
@@ -125,6 +160,29 @@ export async function humanClick(
   } else {
     await locator.click(clickOpts);
   }
+  return true;
+}
+
+/**
+ * Move the cursor to a human aim point inside `locator` and rest there.
+ *
+ * Worth humanizing for the same reason as click: a hover that teleports onto a
+ * menu trigger and fires instantly is a distinctive pattern, and some menus key
+ * off a dwell rather than the first pixel of contact — so arriving along a path
+ * and settling briefly is both more realistic and more likely to work.
+ *
+ * Returns false when the element has no usable box.
+ */
+export async function humanHover(
+  page: Page,
+  locator: Locator,
+  opts: { timeout: number; preset?: HumanPreset },
+): Promise<boolean> {
+  const arrival = await approach(page, locator, opts);
+  if (!arrival) return false;
+
+  await sleep(aimDelay(arrival.cfg, arrival.isInput));
+  await locator.hover({ position: arrival.position, timeout: opts.timeout });
   return true;
 }
 
