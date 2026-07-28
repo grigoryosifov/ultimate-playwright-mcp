@@ -244,7 +244,7 @@ export function registerBrowserActionTools(
   // browser_type
   register(
     "browser_type",
-    "Type text into an element. Types with human cadence by default (per-key hold, jittered gaps, occasional pauses and typo-corrections), which is what you want for anything a person is supposed to have written — a comment, a DM, a message. Pass humanize:false for bulk or dashboard entry where speed matters.",
+    "Type text into an element. Types with human cadence by default (per-key hold, jittered gaps, occasional pauses and typo-corrections), which is what you want for anything a person is supposed to have written — a comment, a DM, a message. Pass humanize:false for bulk or dashboard entry where speed matters. Pass append:true to keep the element's existing content (e.g. a prefilled @mention) and type at its end instead of replacing it.",
     {
       type: "object",
       properties: {
@@ -274,6 +274,11 @@ export function registerBrowserActionTools(
           description:
             "Type more deliberately (slower cadence, longer pauses). Useful for editors that drop fast input.",
         },
+        append: {
+          type: "boolean",
+          description:
+            "Type at the END of the existing content instead of replacing it (default false clears the field first: select-all + Delete). Use on composers that pre-fill content that must survive — e.g. LinkedIn reply boxes, where the prefilled @mention is a link the clear would destroy.",
+        },
       },
       required: ["ref", "text"],
     },
@@ -284,6 +289,7 @@ export function registerBrowserActionTools(
       submit?: boolean;
       humanize?: boolean;
       slowly?: boolean;
+      append?: boolean;
     }) => {
       if (!config.cdpEndpoint) throw new Error("CDP endpoint not configured");
 
@@ -295,6 +301,7 @@ export function registerBrowserActionTools(
         submit: args.submit,
         humanize: args.humanize,
         slowly: args.slowly,
+        append: args.append,
       });
 
       return `**Typed** "${args.text}" into ${args.ref}`;

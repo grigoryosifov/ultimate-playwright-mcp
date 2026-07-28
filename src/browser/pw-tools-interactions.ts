@@ -13,7 +13,7 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import { normalizeTimeoutMs, requireRef, toAIFriendlyError } from "./pw-tools-shared.js";
-import { humanClick, humanHover, humanType, type HumanPreset } from "./human/index.js";
+import { collapseCaretToEnd, humanClick, humanHover, humanType, type HumanPreset } from "./human/index.js";
 
 export type BrowserFormField = {
   ref: string;
@@ -329,6 +329,15 @@ export async function typeViaPlaywright(opts: {
   slowly?: boolean;
   timeoutMs?: number;
   /**
+   * Type at the END of the existing content instead of replacing it. The
+   * default (false) clears first — select-all + Delete on the humanized path,
+   * fill() otherwise — which destroys anything the page pre-filled, e.g. a
+   * LinkedIn reply composer's @mention link whose data-entity-urn cannot be
+   * recreated by typing. append:true skips the clear, collapses the caret to
+   * the end of the content, and types from there.
+   */
+  append?: boolean;
+  /**
    * Type with human cadence — per-key hold, jittered gaps, occasional pauses
    * and typo-corrections — instead of setting the value in one shot. Default
    * true. Pass false for bulk/dashboard entry where speed matters; note that
@@ -352,12 +361,19 @@ export async function typeViaPlaywright(opts: {
       // slower, more deliberate preset so the flag keeps its intent.
       typed = await humanType(page, locator, text, {
         timeout,
-        clear: true,
+        clear: !opts.append,
+        caretToEnd: !!opts.append,
         preset: opts.humanPreset ?? (opts.slowly ? "careful" : "default"),
       });
     }
     if (!typed) {
-      if (opts.slowly) {
+      if (opts.append) {
+        // fill() would replace the content — append must go through real
+        // key events after parking the caret at the end.
+        await locator.click({ timeout });
+        await locator.evaluate(collapseCaretToEnd);
+        await locator.pressSequentially(text, { timeout, delay: opts.slowly ? 75 : 0 });
+      } else if (opts.slowly) {
         await locator.click({ timeout });
         await locator.type(text, { timeout, delay: 75 });
       } else {
