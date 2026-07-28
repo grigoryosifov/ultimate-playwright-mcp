@@ -187,6 +187,39 @@ export async function humanHover(
 }
 
 /**
+ * Collapse the caret to the very end of an editable element, so subsequent
+ * typing appends instead of landing wherever the focus click happened to
+ * place it. Runs in page context via locator.evaluate. Handles both
+ * <input>/<textarea> (setSelectionRange) and contenteditable roots
+ * (Range collapsed to the end of the content).
+ *
+ * Selection placement is not an input event, so nothing that profiles typing
+ * cadence sees it — the keystrokes that follow are the human-shaped part.
+ */
+export function collapseCaretToEnd(el: Element): void {
+  if (typeof el.setSelectionRange === "function" && typeof el.value === "string") {
+    try {
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+      return;
+    } catch {
+      // Some input types (number, email) reject setSelectionRange — fall
+      // through to the generic selection path.
+    }
+  }
+  const doc = el.ownerDocument;
+  const win = doc?.defaultView;
+  if (!doc || !win) return;
+  const range = doc.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  const sel = win.getSelection();
+  if (!sel) return;
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/**
  * Focus `locator` with a human click, optionally clear it, then type `text`
  * with human cadence.
  *
@@ -200,6 +233,13 @@ export async function humanType(
   opts: {
     timeout: number;
     clear?: boolean;
+    /**
+     * Move the caret to the end of the existing content after focusing.
+     * The focus click lands at a randomised point inside the element, so
+     * without this, appended text would splice into the middle of whatever
+     * is already there.
+     */
+    caretToEnd?: boolean;
     preset?: HumanPreset;
   },
 ): Promise<boolean> {
@@ -220,6 +260,9 @@ export async function humanType(
     await sleep(rand(40, 120));
     await page.keyboard.press("Delete");
     await sleep(rand(80, 200));
+  } else if (opts.caretToEnd) {
+    await locator.evaluate(collapseCaretToEnd);
+    await sleep(rand(40, 120));
   }
 
   await runPlan(page.keyboard, planTyping(text, cfg));
