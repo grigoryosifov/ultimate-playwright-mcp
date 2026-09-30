@@ -30,7 +30,7 @@ export async function preserveFrontmostApp<T>(fn: () => Promise<T>): Promise<T> 
   try {
     return await fn();
   } finally {
-    if (frontApp && !/^Google Chrome$|^Chrome Agents$|^Chromium$/.test(frontApp)) {
+    if (frontApp && frontApp !== "Chrome Agents") {  // Google Chrome is the WORK browser — restore it too (30.09.2026)
       try {
         await execFile(
           "osascript",
